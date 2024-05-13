@@ -103,10 +103,17 @@ load_grc(PluginLoader &loader, const std::string &yaml_source) {
     for (const auto &grc_block : blocks) {
         auto name = grc_block["name"].as<std::string>();
         auto id   = grc_block["id"].as<std::string>();
+        auto parameters = grc_block["parameters"];
 
         // TODO: Discuss how GRC should store the node types, how we should
         // in general handle nodes that are parametrised by more than one type
-        auto currentBlock = loader.instantiate(id, "double");
+
+        std::string type = "double";
+        auto fi = std::find_if(parameters.begin(), parameters.end(), [](const auto &a) { return a.first.template as<std::string>() == "T";});
+        if (parameters && parameters.IsMap() && fi != parameters.end()) {
+            type = fi->second.as<std::string>();
+        }
+        auto currentBlock = loader.instantiate(id, type);
         if (!currentBlock) {
             throw fmt::format("Unable to create block of type '{}'", id);
         }
@@ -114,7 +121,6 @@ load_grc(PluginLoader &loader, const std::string &yaml_source) {
         currentBlock->setName(name);
         property_map new_properties;
 
-        auto parameters = grc_block["parameters"];
         if (parameters && parameters.IsMap()) {
             // TODO this applyStagedParameters is a workaround to make sure that currentBlock_settings is not empty
             // but contains the default values of the block (needed to covert the parameter values to the right type)

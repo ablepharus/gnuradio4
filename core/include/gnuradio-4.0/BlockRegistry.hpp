@@ -74,6 +74,10 @@ public:
         if (handler_it == block_handlers.end()) return nullptr;
 
         handler_it->second(result, params);
+        if  (result->dynamicInputPortsSize() > 0)
+            ;//std::cout << "createBlock " << result->name() << "with first port dtype " << result->dynamicInputPort(0).datatype << std::endl;
+        if  (result->dynamicOutputPortsSize() > 0)
+            ;//std::cout << "createBlock " << result->name() << "with first port dtype " << result->dynamicOutputPort(0).datatype << std::endl;
         return result;
     }
 

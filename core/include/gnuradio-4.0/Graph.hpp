@@ -38,6 +38,7 @@ protected:
     struct NamedPortCollection {
         std::string                  name;
         std::vector<gr::DynamicPort> ports;
+        std::string                  datatype;
     };
 
     using DynamicPortOrCollection             = std::variant<gr::DynamicPort, NamedPortCollection>;
@@ -232,6 +233,13 @@ public:
     typeName() const
             = 0;
 
+    /*
+     * @brief the type(s) that the nodes was instantiated with
+     */
+    [[nodiscard]] virtual /* std::vector< */ std::string_view
+    targetTypeName() const
+            = 0;
+
     /**
      * @brief user-defined name
      * N.B. may not be unique -> ::uniqueName
@@ -351,6 +359,7 @@ private:
                         auto               &collection = (blockRef().*(PortCollectionDescriptor::pointer));
                         NamedPortCollection result;
                         result.name = refl::descriptor::get_name(PortCollectionDescriptor()).data;
+                        result.datatype = typeid(CurrentPortType).name(); // demangle ?
                         for (auto &port : collection) {
                             processPort(result.ports, port);
                         }
@@ -471,6 +480,22 @@ public:
     [[nodiscard]] std::string_view
     typeName() const override {
         return _type_name;
+    }
+
+    std::string_view
+    targetTypeName() const override {
+        std::string str = "T<float>"; // TODO _demangle(typeid(T).name())
+        size_t start_pos = str.find('<');
+        if (start_pos == std::string::npos) {
+            // Return empty string if '<' is not found
+            return "";
+        }
+        size_t end_pos = str.rfind('>');
+        if (end_pos == std::string::npos || end_pos <= start_pos) {
+            // Return empty string if '>' is not found or if it appears before '<'
+            return "";
+        }
+        return str.substr(start_pos + 1, end_pos - start_pos - 1);
     }
 
     [[nodiscard]] property_map &
@@ -602,7 +627,7 @@ private:
     findBlock(TBlock &what) {
         static_assert(!std::is_pointer_v<std::remove_cvref_t<TBlock>>);
         auto it = [&, this] {
-            if constexpr (std::is_same_v<TBlock, BlockModel>) {
+            if constexpr (std::is_same_v<std::remove_cvref_t<TBlock>, BlockModel>) {
                 return std::find_if(_blocks.begin(), _blocks.end(), [&](const auto &block) { return block.get() == &what; });
             } else {
                 return std::find_if(_blocks.begin(), _blocks.end(), [&](const auto &block) { return block->raw() == &what; });
@@ -854,7 +879,7 @@ public:
 
     template<fixed_string sourcePortName, typename Source>
     [[nodiscard]] auto
-    connect(Source &source) {
+    connect(const Source &source) {
         return connect<sourcePortName, meta::invalid_index, Source>(source);
     }
 
@@ -863,7 +888,7 @@ public:
     template<typename Source, typename Destination>
         requires(!std::is_pointer_v<std::remove_cvref_t<Source>> && !std::is_pointer_v<std::remove_cvref_t<Destination>>)
     ConnectionResult
-    connect(Source &sourceBlockRaw, PortIndexDefinition<std::size_t> sourcePortDefinition, Destination &destinationBlockRaw, PortIndexDefinition<std::size_t> destinationPortDefinition,
+    connect(const Source &sourceBlockRaw, PortIndexDefinition<std::size_t> sourcePortDefinition, Destination &destinationBlockRaw, PortIndexDefinition<std::size_t> destinationPortDefinition,
             std::size_t minBufferSize = 65536, std::int32_t weight = 0, std::string_view edgeName = "unnamed edge") {
         auto result = findBlock(sourceBlockRaw)
                               ->dynamicOutputPort(sourcePortDefinition.topLevel, sourcePortDefinition.subIndex)
@@ -879,8 +904,8 @@ public:
     template<typename Source, typename Destination>
         requires(!std::is_pointer_v<std::remove_cvref_t<Source>> && !std::is_pointer_v<std::remove_cvref_t<Destination>>)
     ConnectionResult
-    connect(Source &sourceBlockRaw, PortIndexDefinition<std::string> sourcePortDefinition, Destination &destinationBlockRaw, PortIndexDefinition<std::string> destinationPortDefinition,
-            std::size_t minBufferSize = 65536, std::int32_t weight = 0, std::string_view edgeName = "unnamed edge") {
+    connect(const Source &sourceBlockRaw, PortIndexDefinition<std::string> sourcePortDefinition, Destination &destinationBlockRaw, PortIndexDefinition<std::string> destinationPortDefinition,
+            std::size_t minBufferSize = 65536, std::int32_t weight = 0, std::string_view edgeName = "unnamed edge") const {
         auto sourcePortIndex      = this->findBlock(sourceBlockRaw)->dynamicOutputPortIndex(sourcePortDefinition.topLevel);
         auto destinationPortIndex = this->findBlock(destinationBlockRaw)->dynamicInputPortIndex(destinationPortDefinition.topLevel);
         return connect(sourceBlockRaw, { sourcePortIndex, sourcePortDefinition.subIndex }, destinationBlockRaw, { destinationPortIndex, destinationPortDefinition.subIndex }, minBufferSize, weight,

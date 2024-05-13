@@ -15,7 +15,22 @@
 #include "Message.hpp"
 #include "Tag.hpp"
 
+#include <cxxabi.h>
+
 namespace gr {
+
+template<typename T>
+std::string _demangle_type() {
+    int     status;
+    char *name = abi::__cxa_demangle(typeid(T).name(), NULL, NULL, &status);
+    std::string return_v{name};
+    assert(status == 0);
+    /* -1: A memory allocation failiure occurred.
+       -2: mangled_name is not a valid name under the C++ ABI mangling rules.
+       -3: One of the arguments is invalid. */
+    std::free(name);
+    return return_v;
+}
 
 using gr::meta::fixed_string;
 
@@ -63,6 +78,7 @@ concept PortLike = requires(T t, const std::size_t n_items, const std::any &newD
     { t.min_samples } -> std::convertible_to<std::size_t>;
     { t.max_samples } -> std::convertible_to<std::size_t>;
     { t.type() } -> std::same_as<PortType>;
+    { t.datatype } -> std::convertible_to<std::string_view>;
     { t.direction() } -> std::same_as<PortDirection>;
     { t.domain() } -> std::same_as<std::string_view>;
     { t.resizeBuffer(n_items) } -> std::same_as<ConnectionResult>;
@@ -330,6 +346,7 @@ struct Port {
     std::string           name          = static_cast<std::string>(portName);
     std::int16_t          priority      = 0; // → dependents of a higher-prio port should be scheduled first (Q: make this by order of ports?)
     T                     default_value = T{};
+    std::string           datatype      = _demangle_type<T>();
 
     //
     std::conditional_t<Required::kIsConst, const std::size_t, std::size_t> min_samples = Required::kMinSamples;
@@ -790,6 +807,7 @@ public:
     std::int16_t      &priority; // → dependents of a higher-prio port should be scheduled first (Q: make this by order of ports?)
     std::size_t       &min_samples;
     std::size_t       &max_samples;
+    const std::string &datatype;
 
 private:
     struct model { // intentionally class-private definition to limit interface exposure and enhance composition
@@ -981,11 +999,11 @@ public:
     // can not be reallocated
     template<PortLike T>
     explicit constexpr DynamicPort(T &arg, non_owned_reference_tag) noexcept
-        : name(arg.name), priority(arg.priority), min_samples(arg.min_samples), max_samples(arg.max_samples), _accessor{ std::make_unique<wrapper<T, false>>(arg) } {}
+        : name(arg.name), priority(arg.priority), min_samples(arg.min_samples), max_samples(arg.max_samples), _accessor{ std::make_unique<wrapper<T, false>>(arg) }, datatype(arg.datatype) {}
 
     template<PortLike T>
     explicit constexpr DynamicPort(T &&arg, owned_value_tag) noexcept
-        : name(arg.name), priority(arg.priority), min_samples(arg.min_samples), max_samples(arg.max_samples), _accessor{ std::make_unique<wrapper<T, true>>(std::forward<T>(arg)) } {}
+        : name(arg.name), priority(arg.priority), min_samples(arg.min_samples), max_samples(arg.max_samples), _accessor{ std::make_unique<wrapper<T, true>>(std::forward<T>(arg)) }, datatype(arg.datatype) {}
 
     [[nodiscard]] std::any
     defaultValue() const noexcept {
